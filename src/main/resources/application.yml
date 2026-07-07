@@ -93,11 +93,13 @@ app:
     enabled: true
     # Uses ANTHROPIC_API_KEY from the environment. Manual-trigger only (no auto-run) to
     # avoid unexpected API spend — generate via POST /api/briefings/generate or the dashboard.
-    model: claude-opus-4-8
-    max-tokens: 1500
+    # Sonnet is much faster than Opus for short JSON briefings.
+    model: ${BRIEFING_MODEL:claude-sonnet-4-6}
+    max-tokens: 512
     max-tickers: 8
     max-signals: 10
     max-news: 8
+    max-concurrency: 4   # parallel Claude calls per generation run
 
 logging:
   level:

@@ -107,6 +107,7 @@ Two optional free API keys enable extra sources. Set them as env vars — **neve
 export FMP_API_KEY=your_key_here        # Phase 3 — Congress trades (financialmodelingprep.com)
 export FINNHUB_API_KEY=your_key_here    # Phase 5 — company news (finnhub.io)
 export ANTHROPIC_API_KEY=your_key_here  # Phase 8 — AI briefing (console.anthropic.com)
+export BRIEFING_MODEL=claude-sonnet-4-6 # optional; default is sonnet (override e.g. claude-opus-4-8)
 export LINE_CHANNEL_TOKEN=your_token    # Phase 9 — LINE alerts (developers.line.biz)
 export LINE_USER_ID=your_user_id        # Phase 9 — your LINE user id (push target)
 ```
@@ -161,7 +162,8 @@ curl -X POST localhost:8080/api/context/refresh
 
 # Phase 8 — AI briefings (needs ANTHROPIC_API_KEY):
 curl localhost:8080/api/briefings/status              # {enabled, model}
-curl -X POST localhost:8080/api/briefings/generate    # generate for active tickers
+curl -X POST localhost:8080/api/briefings/generate    # 202 + job {id, status, ...}
+curl localhost:8080/api/briefings/jobs/<jobId>      # poll until COMPLETED/FAILED/SKIPPED
 curl localhost:8080/api/briefings/today
 
 # Phase 9 — alerts (LINE delivery needs LINE_CHANNEL_TOKEN + LINE_USER_ID):

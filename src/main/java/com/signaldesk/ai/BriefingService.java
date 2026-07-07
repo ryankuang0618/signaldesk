@@ -20,9 +20,14 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Generates per-ticker research briefings: gathers recent signals + news for a ticker, asks Claude
@@ -58,12 +63,14 @@ public class BriefingService {
     private final ObjectMapper mapper;
     private final LiveUpdatePublisher live;
     private final AlertService alertService;
+    private final BriefingJobRegistry jobs;
 
     private final boolean enabled;
     private final int maxTickers;
     private final int maxSignals;
     private final int maxNews;
     private final int maxContext;
+    private final ExecutorService workers;
 
     public BriefingService(ClaudeBriefingClient claude,
                            TradeSignalRepository signals,
@@ -73,11 +80,13 @@ public class BriefingService {
                            ObjectMapper mapper,
                            LiveUpdatePublisher live,
                            AlertService alertService,
+                           BriefingJobRegistry jobs,
                            @Value("${app.briefing.enabled:true}") boolean enabled,
                            @Value("${app.briefing.max-tickers:8}") int maxTickers,
                            @Value("${app.briefing.max-signals:10}") int maxSignals,
                            @Value("${app.briefing.max-news:8}") int maxNews,
-                           @Value("${app.briefing.max-context:8}") int maxContext) {
+                           @Value("${app.briefing.max-context:8}") int maxContext,
+                           @Value("${app.briefing.max-concurrency:4}") int maxConcurrency) {
         this.claude = claude;
         this.signals = signals;
         this.news = news;
@@ -86,43 +95,67 @@ public class BriefingService {
         this.mapper = mapper;
         this.live = live;
         this.alertService = alertService;
+        this.jobs = jobs;
         this.enabled = enabled;
         this.maxTickers = maxTickers;
         this.maxSignals = maxSignals;
         this.maxNews = maxNews;
         this.maxContext = maxContext;
+        this.workers = Executors.newFixedThreadPool(Math.max(1, maxConcurrency));
     }
 
-    /** Generate briefings for the most active tickers. Returns how many were produced. */
-    public int generateAll() {
+    public Optional<BriefingJob> findJob(String jobId) {
+        return jobs.find(jobId);
+    }
+
+    /**
+     * Create a background generation job and return it immediately. Poll {@link #findJob(String)}
+     * (or GET /api/briefings/jobs/{jobId}) until status is terminal.
+     */
+    public BriefingJob startJob() {
+        BriefingJob job = jobs.create(claude.model());
         if (!enabled) {
-            log.info("Briefing generation disabled (app.briefing.enabled=false)");
-            return 0;
+            job.skip("disabled");
+            return job;
         }
         if (!claude.hasKey()) {
-            log.info("Briefing generation skipped — no ANTHROPIC_API_KEY set");
-            return 0;
+            job.skip("no_api_key");
+            return job;
         }
-        LocalDate today = LocalDate.now();
-        int made = 0;
-        for (String ticker : targetTickers()) {
-            try {
-                if (generateForTicker(ticker, today)) {
-                    made++;
-                }
-            } catch (Exception e) {
-                log.warn("Briefing failed for {}: {}", ticker, e.getMessage());
-            }
-        }
-        log.info("Briefing generation complete — {} briefing(s) with {}", made, claude.model());
-        live.publish("BRIEFING", made);
-        // Turn qualifying briefings into alerts (and push to LINE if configured).
+        CompletableFuture.runAsync(() -> runJob(job));
+        return job;
+    }
+
+    private void runJob(BriefingJob job) {
         try {
-            alertService.processToday();
+            LocalDate today = LocalDate.now();
+            List<String> tickers = new ArrayList<>(targetTickers());
+            job.begin(tickers.size());
+
+            tickers.stream()
+                    .map(ticker -> CompletableFuture.runAsync(() -> {
+                        try {
+                            job.tickCompleted(generateForTicker(ticker, today));
+                        } catch (Exception e) {
+                            job.tickCompleted(false);
+                            log.warn("Briefing failed for {}: {}", ticker, e.getMessage());
+                        }
+                    }, workers))
+                    .forEach(CompletableFuture::join);
+
+            int made = job.getGenerated();
+            log.info("Briefing job {} complete — {} briefing(s) with {}", job.getId(), made, claude.model());
+            job.succeed();
+            live.publish("BRIEFING", made);
+            try {
+                alertService.processToday();
+            } catch (Exception e) {
+                log.warn("Alert processing failed: {}", e.getMessage());
+            }
         } catch (Exception e) {
-            log.warn("Alert processing failed: {}", e.getMessage());
+            log.warn("Briefing job {} failed: {}", job.getId(), e.getMessage());
+            job.fail(e.getMessage());
         }
-        return made;
     }
 
     private boolean generateForTicker(String ticker, LocalDate today) {

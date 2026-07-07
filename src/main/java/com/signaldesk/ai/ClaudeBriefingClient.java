@@ -18,7 +18,7 @@ public class ClaudeBriefingClient {
     private final long maxTokens;
     private volatile AnthropicClient client;
 
-    public ClaudeBriefingClient(@Value("${app.briefing.model:claude-opus-4-8}") String model,
+    public ClaudeBriefingClient(@Value("${app.briefing.model:claude-sonnet-4-6}") String model,
                                 @Value("${app.briefing.max-tokens:1500}") long maxTokens) {
         this.model = model;
         this.maxTokens = maxTokens;

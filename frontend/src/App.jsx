@@ -22,6 +22,18 @@ async function api(path, opts) {
   return res.json();
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function pollBriefingJob(jobId) {
+  for (;;) {
+    const job = await api(`/api/briefings/jobs/${jobId}`);
+    if (['COMPLETED', 'FAILED', 'SKIPPED'].includes(job.status)) return job;
+    await sleep(1500);
+  }
+}
+
 function fmtDate(s) {
   if (!s) return '—';
   return String(s).slice(0, 10);
@@ -126,7 +138,9 @@ export default function App() {
   const [pulse, setPulse] = useState(false);
 
   const sourceRef = useRef(source);
+  const generatingRef = useRef(false);
   useEffect(() => { sourceRef.current = source; }, [source]);
+  useEffect(() => { generatingRef.current = generating; }, [generating]);
 
   const reload = useCallback(async () => {
     setError(null);
@@ -171,7 +185,11 @@ export default function App() {
           try {
             const u = JSON.parse(msg.body);
             setLastUpdate(u);
-            if (u.newCount > 0) {
+            if (u.source === 'BRIEFING') {
+              setPulse(true);
+              setTimeout(() => setPulse(false), 1500);
+              if (!generatingRef.current) reload();
+            } else if (u.newCount > 0) {
               setPulse(true);
               setTimeout(() => setPulse(false), 1500);
               reload();
@@ -202,11 +220,25 @@ export default function App() {
 
   const generateBriefings = async () => {
     setGenerating(true);
+    setError(null);
     try {
-      await api('/api/briefings/generate', { method: 'POST' });
+      const res = await fetch('/api/briefings/generate', { method: 'POST' });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const { id: jobId, status } = await res.json();
+      if (status === 'SKIPPED') {
+        setError('Briefing generation skipped — set ANTHROPIC_API_KEY and restart.');
+        return;
+      }
+      const job = await pollBriefingJob(jobId);
+      if (job.status === 'FAILED') {
+        setError(job.error || 'Briefing generation failed.');
+      }
       await reload();
-    } catch { setError('Briefing generation failed.'); }
-    finally { setGenerating(false); }
+    } catch {
+      setError('Briefing generation failed.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const counts = signals.reduce((a, s) => { a[s.source] = (a[s.source] || 0) + 1; return a; }, {});
