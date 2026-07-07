@@ -1,0 +1,14 @@
+target/
+# Frontend build output, bundled into the jar at Docker build time — not committed.
+src/main/resources/static/
+!.mvn/wrapper/maven-wrapper.jar
+*.iml
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Local env / secrets — never commit API keys
+.env
+application-local.yml
+application-local.yaml

@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: signaldesk
+
+  datasource:
+    # Local Homebrew Postgres: superuser defaults to your macOS username, no password.
+    # Override with env vars in production / other machines.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:signaldesk}
+    username: ${DB_USER:ryankuang}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      # Flyway owns the schema. Hibernate only validates that entities match it.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  # Render (and most PaaS) inject the port to bind on via $PORT.
+  port: ${PORT:${SERVER_PORT:8080}}
+
+# SignalDesk ingestion settings.
+app:
+  edgar:
+    # SEC requires a descriptive User-Agent with contact info. Override in prod.
+    user-agent: ${EDGAR_USER_AGENT:SignalDesk/0.1 (ryankuang0618@gmail.com)}
+    request-delay-ms: 130          # ~7 req/s, safely under SEC's 10 req/s limit
+  ingestion:
+    enabled: true
+    run-on-startup: true
+    poll-limit: 8                  # max Form 4 filings pulled per issuer per run
+    interval-ms: 1800000           # periodic poll every 30 minutes
+  congress:
+    enabled: true
+    # Free FMP key. Set via env (FMP_API_KEY) or application-local.yml — never commit it.
+    api-key: ${FMP_API_KEY:}
+    base-url: https://financialmodelingprep.com/stable
+    pages: 1                       # FMP free tier: page must be 0
+    page-size: 25                  # FMP free tier: limit max is 25
+    run-on-startup: true
+    interval-ms: 1800000
+  thirteenf:
+    enabled: true
+    run-on-startup: true
+    filings-per-fund: 2            # need the latest 2 quarters to diff
+    material-change-pct: 20        # min % share change to flag an increase/decrease
+    max-ticker-lookups: 60         # cap OpenFIGI calls per run (largest positions first)
+    interval-ms: 21600000          # 6h — 13F only changes quarterly
+  openfigi:
+    base-url: https://api.openfigi.com/v3/mapping
+    api-key: ${OPENFIGI_API_KEY:}  # optional; raises rate limits
+    batch-size: 10
+    throttle-ms: 300
+  news:
+    enabled: true
+    # Free Finnhub key. Set via env (FINNHUB_API_KEY) — never commit it.
+    api-key: ${FINNHUB_API_KEY:}
+    base-url: https://finnhub.io/api/v1
+    lookback-days: 7
+    max-tickers: 20               # cap tickers fetched per run
+    throttle-ms: 1100             # stay under Finnhub free tier (60 calls/min)
+    run-on-startup: true
+    interval-ms: 3600000          # hourly
+  enrichment:
+    enabled: true
+    run-on-startup: true
+    max-tickers: 8                # tickers sent through Finnhub context calls per run
+    eightk-per-issuer: 3         # recent 8-K filings per tracked issuer
+    throttle-ms: 1100            # per Finnhub call — stay under free tier (60/min)
+    interval-ms: 21600000        # every 6h
+  security:
+    # Only used under the 'prod' profile (whole app behind HTTP basic auth). Set via env in prod.
+    username: ${APP_SECURITY_USERNAME:admin}
+    password: ${APP_SECURITY_PASSWORD:}
+  line:
+    enabled: true
+    # LINE Messaging API — set via env, never commit. Without these, alerts are still recorded
+    # (viewable in /api/alerts) but not delivered.
+    channel-token: ${LINE_CHANNEL_TOKEN:}
+    user-id: ${LINE_USER_ID:}
+    push-url: https://api.line.me/v2/bot/message/push
+    confidence-threshold: 0.6      # only BUY/SELL briefings at/above this confidence alert
+  briefing:
+    enabled: true
+    # Uses ANTHROPIC_API_KEY from the environment. Manual-trigger only (no auto-run) to
+    # avoid unexpected API spend — generate via POST /api/briefings/generate or the dashboard.
+    model: claude-opus-4-8
+    max-tokens: 1500
+    max-tickers: 8
+    max-signals: 10
+    max-news: 8
+
+logging:
+  level:
+    org.flywaydb: info
