@@ -154,9 +154,10 @@ public class LineBotService {
     }
 
     private String line(Briefing b) {
-        String summary = b.getSummary() == null ? "" : b.getSummary().trim();
+        // Scannable headline only — the full summary lives on the per-ticker (<TICKER>) view. This
+        // also keeps the whole 'today' message well under LINE's 5000-char limit.
         return emoji(b.getSignal()) + " " + b.getTicker() + " " + b.getSignal()
-                + " " + pct(b.getConfidence()) + "\n" + summary;
+                + " " + pct(b.getConfidence());
     }
 
     private static String emoji(Side s) {

@@ -26,6 +26,8 @@ public class LineClient {
 
     private static final Logger log = LoggerFactory.getLogger(LineClient.class);
     private static final String HMAC_SHA256 = "HmacSHA256";
+    /** LINE rejects text messages longer than 5000 chars; clamp below that so a reply never silently fails. */
+    private static final int MAX_TEXT = 4900;
 
     private final RestClient http;
     private final String pushUrl;
@@ -85,7 +87,7 @@ public class LineClient {
         }
         return send(replyUrl, Map.of(
                 "replyToken", replyToken,
-                "messages", List.of(Map.of("type", "text", "text", text))));
+                "messages", List.of(Map.of("type", "text", "text", clamp(text)))));
     }
 
     /** Push a text message to the configured user (proactive; counts against the LINE push quota). */
@@ -95,7 +97,15 @@ public class LineClient {
         }
         return send(pushUrl, Map.of(
                 "to", userId,
-                "messages", List.of(Map.of("type", "text", "text", text))));
+                "messages", List.of(Map.of("type", "text", "text", clamp(text)))));
+    }
+
+    /** Keep a message under LINE's hard 5000-char limit. */
+    private static String clamp(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= MAX_TEXT ? text : text.substring(0, MAX_TEXT - 1) + "…";
     }
 
     private boolean send(String url, Map<String, Object> body) {
