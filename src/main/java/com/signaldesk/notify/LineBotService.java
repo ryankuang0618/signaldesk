@@ -1,5 +1,8 @@
 package com.signaldesk.notify;
 
+import com.signaldesk.ai.BriefingJob;
+import com.signaldesk.ai.BriefingJobStatus;
+import com.signaldesk.ai.BriefingService;
 import com.signaldesk.backtest.BacktestService;
 import com.signaldesk.domain.Briefing;
 import com.signaldesk.domain.enums.Side;
@@ -34,17 +37,21 @@ public class LineBotService {
             • holdings  — your portfolio with live P/L + today's signal
             • own <TICKER> <shares> @ <price>  — record a holding (e.g. own NVDA 50 @ 120)
             • remove <TICKER>  — remove a holding
+            • refresh  — regenerate today's briefings now (fresh AI run)
             • stats  — the AI's track record (hit rate)
             • help  — this message""";
 
     private final BriefingRepository briefings;
     private final BacktestService backtest;
     private final PortfolioService portfolio;
+    private final BriefingService briefingService;
 
-    public LineBotService(BriefingRepository briefings, BacktestService backtest, PortfolioService portfolio) {
+    public LineBotService(BriefingRepository briefings, BacktestService backtest,
+                          PortfolioService portfolio, BriefingService briefingService) {
         this.briefings = briefings;
         this.backtest = backtest;
         this.portfolio = portfolio;
+        this.briefingService = briefingService;
     }
 
     /** Produce the reply text for an inbound message. Never throws — always returns something to send. */
@@ -58,6 +65,9 @@ public class LineBotService {
             }
             if (cmd.equals("stats") || cmd.startsWith("track") || cmd.equals("record")) {
                 return trackRecord();
+            }
+            if (cmd.equals("refresh") || cmd.equals("regenerate") || cmd.equals("regen")) {
+                return regenerate();
             }
             if (cmd.equals("today") || cmd.equals("signal") || cmd.equals("signals") || cmd.equals("hi") || cmd.equals("hello")) {
                 return today();
@@ -143,6 +153,18 @@ public class LineBotService {
             });
         }
         return sb.append(DISCLAIMER).toString();
+    }
+
+    private String regenerate() {
+        BriefingJob job = briefingService.startJob();
+        if (job.getStatus() == BriefingJobStatus.SKIPPED) {
+            String why = "no_api_key".equals(job.getReason())
+                    ? "no ANTHROPIC_API_KEY is configured"
+                    : "briefings are disabled";
+            return "⚠️ Can't regenerate — " + why + ".";
+        }
+        return "🔄 Regenerating today's briefings now — a fresh AI run across your holdings + active "
+                + "tickers, which takes a minute or two. Send 'today' shortly to see the update.";
     }
 
     private List<Briefing> todaysBriefings() {

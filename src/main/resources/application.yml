@@ -127,8 +127,8 @@ app:
     # Uses ANTHROPIC_API_KEY from the environment. Sonnet is much faster than Opus for short JSON.
     # auto-run generates the day's briefings on a schedule so the LINE bot can answer instantly.
     auto-run: ${BRIEFING_AUTO_RUN:true}
-    cron: ${BRIEFING_CRON:0 0 8 * * *}       # 08:00 daily, in the zone below
-    timezone: ${BRIEFING_TIMEZONE:UTC}       # e.g. Asia/Taipei, America/New_York
+    cron: ${BRIEFING_CRON:0 0 8 * * MON-FRI} # 08:00 on weekdays (markets closed weekends)
+    timezone: ${BRIEFING_TIMEZONE:UTC}       # e.g. America/Los_Angeles, America/New_York
     model: ${BRIEFING_MODEL:claude-sonnet-4-6}
     max-tokens: 512
     max-tickers: 12               # extra market-active tickers beyond your holdings (which are always briefed)

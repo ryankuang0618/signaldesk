@@ -27,10 +27,10 @@ public class BriefingPoller {
     }
 
     /**
-     * Default: 08:00 daily in the configured zone. Override the time with {@code app.briefing.cron}
-     * and the zone with {@code app.briefing.timezone} (e.g. Asia/Taipei, America/New_York).
+     * Default: 08:00 on weekdays in the configured zone (markets are closed weekends). Override the
+     * time with {@code app.briefing.cron} and the zone with {@code app.briefing.timezone}.
      */
-    @Scheduled(cron = "${app.briefing.cron:0 0 8 * * *}", zone = "${app.briefing.timezone:UTC}")
+    @Scheduled(cron = "${app.briefing.cron:0 0 8 * * MON-FRI}", zone = "${app.briefing.timezone:UTC}")
     public void daily() {
         if (!autoRun) {
             return;
