@@ -1,7 +1,18 @@
 # SignalDesk
 
-Personal stock-signal dashboard: tracks what proven traders are buying/selling, cross-references
-company news, and uses Claude to surface daily research signals. Backend: Spring Boot + PostgreSQL.
+Personal stock-signal **LINE bot**: tracks what proven traders are buying/selling, cross-references
+company news, and uses Claude to surface daily research signals — delivered in LINE chat. Backend:
+Spring Boot + PostgreSQL.
+
+Message the bot to get today's read:
+
+- `today` — today's signals across tracked tickers
+- `<TICKER>` — one ticker's read (e.g. `NVDA`)
+- `stats` — the AI's track record (hit rate)
+- `help` — the command list
+
+Briefings are generated on a schedule each morning, so replies are instant (a database read, not a
+live Claude call). High-confidence BUY/SELL briefings are also pushed to LINE proactively as alerts.
 
 > ⚠️ Research tool only. AI output is **not** financial advice, and disclosed-trade data is delayed by design.
 
@@ -30,12 +41,14 @@ company news, and uses Claude to surface daily research signals. Backend: Spring
 - Scheduled poller (startup + every 30 min); **disabled gracefully if no FMP key is set**
 - Requires a free FMP API key (see Config below)
 
-**Phase 9 — LINE alerts**
-- High-confidence BUY/SELL briefings (≥ threshold) become `alert`s and are pushed to LINE via
-  the Messaging API; deduped one per ticker+signal+day
-- Alerts are recorded even without LINE configured (viewable in `/api/alerts` and the dashboard);
-  LINE is just the delivery channel. `LineClient` + `AlertService`, runs after each briefing
-- Dashboard **Alerts** panel with a LINE on/off badge and pushed/queued state
+**LINE bot (the interface)**
+- **Inbound:** `POST /api/line/webhook` receives messages from LINE, verifies the `X-Line-Signature`
+  HMAC (channel secret), and replies from stored briefings — `today`, a ticker, `stats`, `help`.
+  `LineWebhookController` + `LineBotService` + `LineClient`
+- **Outbound alerts:** high-confidence BUY/SELL briefings (≥ threshold) become `alert`s and are
+  pushed to LINE; deduped one per ticker+signal+day. Alerts are still recorded without LINE
+  configured (viewable via `/api/alerts`) — LINE is just the delivery channel. `AlertService`
+- Reply messages (answering the user) are free/unlimited on LINE; push (alerts) is quota-limited
 
 **Phase 7 — enrichment (context sources)**
 - Populates `context_event` with the validation layer the AI weighs against signals:
@@ -52,18 +65,10 @@ company news, and uses Claude to surface daily research signals. Backend: Spring
   an `ANTHROPIC_API_KEY`**
 - `/api/briefings/*` endpoints (see below); dashboard has an AI panel + Generate button
 
-**Phase 6 — live push (WebSocket)**
-- STOMP-over-WebSocket endpoint at `/ws`; server broadcasts ingestion results to `/topic/updates`
-- Every poller and the manual refresh publish `{source, newCount, at}` via `LiveUpdatePublisher`
-- Dashboard connects with `@stomp/stompjs`, shows a **Live** indicator, and auto-refetches when
-  new items land — no manual refresh needed
-
-**Phase 5 — company news + first dashboard**
+**Phase 5 — company news**
 - `FinnhubNewsClient` + `NewsIngestionService` — fetches company news for tracked/active tickers,
   deduped by URL; **disabled gracefully without a Finnhub key**
 - `/api/news` endpoints (see below)
-- **React dashboard** (`frontend/`, Vite) — trade-signals feed (filter by source), tracked-funds
-  panel with expandable holdings, and a news panel. Talks to the backend via a Vite dev proxy.
 
 **Phase 4 — 13F hedge-fund holdings**
 - `fund_holding` table + `ThirteenFClient`/`ThirteenFParser` (SEC EDGAR, namespace-aware info table)
@@ -108,8 +113,10 @@ export FMP_API_KEY=your_key_here        # Phase 3 — Congress trades (financial
 export FINNHUB_API_KEY=your_key_here    # Phase 5 — company news (finnhub.io)
 export ANTHROPIC_API_KEY=your_key_here  # Phase 8 — AI briefing (console.anthropic.com)
 export BRIEFING_MODEL=claude-sonnet-4-6 # optional; default is sonnet (override e.g. claude-opus-4-8)
-export LINE_CHANNEL_TOKEN=your_token    # Phase 9 — LINE alerts (developers.line.biz)
-export LINE_USER_ID=your_user_id        # Phase 9 — your LINE user id (push target)
+export LINE_CHANNEL_TOKEN=your_token    # LINE bot — reply/push (developers.line.biz)
+export LINE_CHANNEL_SECRET=your_secret  # LINE bot — verifies inbound webhook signatures
+export LINE_USER_ID=your_user_id        # LINE — your user id (proactive alert push target)
+export BRIEFING_TIMEZONE=Asia/Taipei    # optional; when the daily 08:00 briefing run fires
 ```
 
 Without a key, the app runs fine and simply skips that feature (logs a notice). Insider Form 4
@@ -117,19 +124,16 @@ and 13F need no key (SEC EDGAR is free).
 
 ## Run
 
-**Backend** (terminal 1):
 ```bash
 export FMP_API_KEY=your_key_here       # optional; enables Congress
 export FINNHUB_API_KEY=your_key_here   # optional; enables news
+export ANTHROPIC_API_KEY=your_key_here # enables AI briefings
 ./run.sh                               # pins JDK 21, then `mvn spring-boot:run`
 ```
 
-**Dashboard** (terminal 2):
-```bash
-cd frontend
-npm install      # first time only
-npm run dev      # → http://localhost:5173  (proxies /api to :8080)
-```
+The bot's interface is LINE (see [DEPLOY.md](DEPLOY.md) for the webhook + channel setup). Locally,
+to test the webhook, expose port 8080 with a tunnel (`ngrok http 8080`) and point the LINE Webhook
+URL at `https://<tunnel>/api/line/webhook`. The REST endpoints below remain for inspection/ops.
 
 On startup, Flyway creates the schema and seeds the actors. Then:
 
@@ -160,16 +164,24 @@ curl localhost:8080/api/context
 curl "localhost:8080/api/context?ticker=NVDA"
 curl -X POST localhost:8080/api/context/refresh
 
-# Phase 8 — AI briefings (needs ANTHROPIC_API_KEY):
+# AI briefings (needs ANTHROPIC_API_KEY); also auto-generated daily on a schedule:
 curl localhost:8080/api/briefings/status              # {enabled, model}
 curl -X POST localhost:8080/api/briefings/generate    # 202 + job {id, status, ...}
 curl localhost:8080/api/briefings/jobs/<jobId>      # poll until COMPLETED/FAILED/SKIPPED
 curl localhost:8080/api/briefings/today
 
-# Phase 9 — alerts (LINE delivery needs LINE_CHANNEL_TOKEN + LINE_USER_ID):
+# Backtest — the AI's track record (BUY/SELL calls scored after their horizon):
+curl localhost:8080/api/backtest/stats
+curl localhost:8080/api/backtest/results
+curl -X POST localhost:8080/api/backtest/run
+
+# Alerts (LINE delivery needs LINE_CHANNEL_TOKEN + LINE_USER_ID):
 curl localhost:8080/api/alerts
 curl localhost:8080/api/alerts/status        # {lineConfigured}
 curl -X POST localhost:8080/api/alerts/process
+
+# LINE webhook — LINE POSTs here; GET shows readiness:
+curl localhost:8080/api/line/webhook         # {ok, webhookConfigured}
 ```
 
 ## Layout
@@ -178,10 +190,14 @@ curl -X POST localhost:8080/api/alerts/process
 src/main/java/com/signaldesk/
 ├── domain/            # JPA entities + enums/
 ├── repository/        # Spring Data JPA repositories
-└── web/rest/          # REST controllers
+├── ingestion/         # Form 4, 13F, Congress, news, enrichment pollers + services
+├── ai/                # Claude briefing generation + daily poller
+├── backtest/          # track-record scoring
+├── notify/            # LINE bot: webhook brain (LineBotService), LineClient, alerts
+└── web/rest/          # REST controllers (incl. LineWebhookController)
 src/main/resources/
 ├── application.yml
-└── db/migration/      # Flyway V1 (schema) + V2 (seed)
+└── db/migration/      # Flyway migrations (schema, seed, backtest)
 ```
 
 ## Next: Phase 10 — Alpaca paper trading

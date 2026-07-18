@@ -13,11 +13,11 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Security is on only under the {@code prod} profile, so local dev (and the Vite proxy) stays
- * open. In prod the whole app sits behind HTTP basic auth — one username/password from env
+ * Security is on only under the {@code prod} profile, so local dev stays open. In prod the whole
+ * app sits behind HTTP basic auth — one username/password from env
  * ({@code APP_SECURITY_USERNAME} / {@code APP_SECURITY_PASSWORD}) — which stops anyone with the
- * URL from triggering the endpoints that spend API credits. The WebSocket endpoint is left open
- * (it only broadcasts, and browsers can't easily set auth headers on the WS handshake).
+ * URL from triggering the endpoints that spend API credits. The LINE webhook is left open (LINE
+ * can't send auth headers; it's authenticated by its X-Line-Signature HMAC instead).
  */
 @Configuration
 public class SecurityConfig {
@@ -28,7 +28,9 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/ws/**").permitAll()
+                        // The LINE webhook can't send basic-auth headers; it authenticates via the
+                        // X-Line-Signature HMAC check in LineClient instead.
+                        .requestMatchers("/api/line/webhook").permitAll()
                         .anyRequest().authenticated())
                 .httpBasic(Customizer.withDefaults());
         return http.build();
@@ -43,7 +45,7 @@ public class SecurityConfig {
         return new InMemoryUserDetailsManager(user);
     }
 
-    /** Non-prod (local dev): no auth, so the dashboard and Vite proxy work without a login. */
+    /** Non-prod (local dev): no auth, so you can curl the API and webhook freely without a login. */
     @Bean
     @Profile("!prod")
     SecurityFilterChain open(HttpSecurity http) throws Exception {

@@ -1,6 +1,7 @@
 package com.signaldesk.ingestion.enrichment;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.signaldesk.domain.ContextEvent;
 import com.signaldesk.domain.TradeSignal;
 import com.signaldesk.domain.TrackedIssuer;
@@ -37,6 +38,7 @@ public class EnrichmentService {
     private final TrackedIssuerRepository issuers;
     private final TradeSignalRepository signals;
     private final LiveUpdatePublisher live;
+    private final ObjectMapper mapper;
 
     private final boolean enabled;
     private final int maxTickers;
@@ -48,6 +50,7 @@ public class EnrichmentService {
                              TrackedIssuerRepository issuers,
                              TradeSignalRepository signals,
                              LiveUpdatePublisher live,
+                             ObjectMapper mapper,
                              @Value("${app.enrichment.enabled:true}") boolean enabled,
                              @Value("${app.enrichment.max-tickers:8}") int maxTickers,
                              @Value("${app.enrichment.eightk-per-issuer:3}") int eightKPerIssuer) {
@@ -57,6 +60,7 @@ public class EnrichmentService {
         this.issuers = issuers;
         this.signals = signals;
         this.live = live;
+        this.mapper = mapper;
         this.enabled = enabled;
         this.maxTickers = maxTickers;
         this.eightKPerIssuer = eightKPerIssuer;
@@ -145,8 +149,8 @@ public class EnrichmentService {
         }
 
         JsonNode met = finnhub.metric(ticker);
-        if (met != null) {
-            JsonNode m = met.path("metric");
+        JsonNode m = (met != null) ? met.path("metric") : null;
+        if (m != null) {
             String today = LocalDate.now().toString();
             String ref = ticker + "|MET|" + today;
             if (!context.existsByTypeAndRef(ContextType.FUNDAMENTAL, ref)) {
@@ -154,6 +158,39 @@ public class EnrichmentService {
                         m.path("52WeekLow").asText("?"), m.path("52WeekHigh").asText("?"),
                         m.path("peTTM").asText(m.path("peBasicExclExtraTTM").asText("?")));
                 save(ticker, ContextType.FUNDAMENTAL, summary, ref, LocalDate.now());
+                n++;
+            }
+        }
+
+        // Technicals: current price, day move, and where it sits in the 52-week range.
+        JsonNode q = finnhub.quote(ticker);
+        if (q != null && q.path("c").asDouble(0) > 0) {
+            String ref = ticker + "|TEC|" + LocalDate.now();
+            if (!context.existsByTypeAndRef(ContextType.TECHNICAL, ref)) {
+                double price = q.path("c").asDouble();
+                double dp = q.path("dp").asDouble();
+                String position = "";
+                if (m != null) {
+                    double lo = m.path("52WeekLow").asDouble(0);
+                    double hi = m.path("52WeekHigh").asDouble(0);
+                    if (hi > lo && lo > 0) {
+                        int pct = (int) Math.max(0, Math.min(100, Math.round((price - lo) / (hi - lo) * 100)));
+                        String where = pct >= 85 ? " (near 52-wk high)" : pct <= 15 ? " (near 52-wk low)" : "";
+                        position = String.format(", %d%% of 52-wk range $%.2f–$%.2f%s", pct, lo, hi, where);
+                    }
+                }
+                ContextEvent tec = new ContextEvent();
+                tec.setTicker(ticker);
+                tec.setType(ContextType.TECHNICAL);
+                tec.setSummary(String.format("Price $%.2f, %+.1f%% today%s", price, dp, position));
+                tec.setRef(ref);
+                tec.setEventAt(Instant.now());
+                try {
+                    tec.setPayload(mapper.writeValueAsString(java.util.Map.of("price", price, "changePct", dp)));
+                } catch (Exception ignore) {
+                    // payload is a nice-to-have (used as backtest entry price); summary still carries it
+                }
+                context.save(tec);
                 n++;
             }
         }

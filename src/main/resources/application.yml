@@ -83,23 +83,34 @@ app:
     password: ${APP_SECURITY_PASSWORD:}
   line:
     enabled: true
-    # LINE Messaging API — set via env, never commit. Without these, alerts are still recorded
-    # (viewable in /api/alerts) but not delivered.
+    # LINE Messaging API — set via env, never commit.
+    #  - channel-token:  sends replies/pushes (Messaging API channel → "Channel access token")
+    #  - channel-secret: verifies inbound webhook signatures (Basic settings → "Channel secret").
+    #                    Required for the chat bot; without it the /api/line/webhook rejects everything.
+    #  - user-id:        push target for proactive daily alerts (your own LINE userId).
     channel-token: ${LINE_CHANNEL_TOKEN:}
+    channel-secret: ${LINE_CHANNEL_SECRET:}
     user-id: ${LINE_USER_ID:}
     push-url: https://api.line.me/v2/bot/message/push
+    reply-url: https://api.line.me/v2/bot/message/reply
     confidence-threshold: 0.6      # only BUY/SELL briefings at/above this confidence alert
   briefing:
     enabled: true
-    # Uses ANTHROPIC_API_KEY from the environment. Manual-trigger only (no auto-run) to
-    # avoid unexpected API spend — generate via POST /api/briefings/generate or the dashboard.
-    # Sonnet is much faster than Opus for short JSON briefings.
+    # Uses ANTHROPIC_API_KEY from the environment. Sonnet is much faster than Opus for short JSON.
+    # auto-run generates the day's briefings on a schedule so the LINE bot can answer instantly.
+    auto-run: ${BRIEFING_AUTO_RUN:true}
+    cron: ${BRIEFING_CRON:0 0 8 * * *}       # 08:00 daily, in the zone below
+    timezone: ${BRIEFING_TIMEZONE:UTC}       # e.g. Asia/Taipei, America/New_York
     model: ${BRIEFING_MODEL:claude-sonnet-4-6}
     max-tokens: 512
     max-tickers: 8
     max-signals: 10
     max-news: 8
     max-concurrency: 4   # parallel Claude calls per generation run
+  backtest:
+    horizon-days: 7           # days after a briefing before scoring it against the price move
+    interval-ms: 43200000     # evaluate due briefings every 12h
+    initial-delay-ms: 120000  # first run 2 min after startup
 
 logging:
   level:

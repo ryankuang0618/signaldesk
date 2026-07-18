@@ -47,6 +47,11 @@ public class FinnhubEnrichmentClient {
                 .retrieve().body(JsonNode.class);
     }
 
+    /** Real-time quote: current price (c), day change % (dp), previous close (pc). */
+    public JsonNode quote(String symbol) {
+        return get("/quote?symbol={s}&token={k}", symbol);
+    }
+
     private JsonNode get(String pathTemplate, String symbol) {
         throttle();
         return http.get().uri(baseUrl + pathTemplate, symbol, apiKey).retrieve().body(JsonNode.class);

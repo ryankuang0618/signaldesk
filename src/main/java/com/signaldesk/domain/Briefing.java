@@ -42,6 +42,28 @@ public class Briefing {
     @Column(length = 64)
     private String model;
 
+    // --- Backtest / track record ---
+    /** Price of the ticker when this briefing was made. */
+    @Column(name = "entry_price", precision = 18, scale = 4)
+    private BigDecimal entryPrice;
+
+    @Column(name = "horizon_days")
+    private Integer horizonDays;
+
+    @Column(name = "evaluated_at")
+    private Instant evaluatedAt;
+
+    @Column(name = "exit_price", precision = 18, scale = 4)
+    private BigDecimal exitPrice;
+
+    /** Percent move from entry to exit over the horizon. */
+    @Column(name = "return_pct", precision = 10, scale = 3)
+    private BigDecimal returnPct;
+
+    /** Whether the directional call (BUY→up / SELL→down) was right. Null until evaluated. */
+    @Column(name = "correct")
+    private Boolean correct;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

@@ -7,6 +7,7 @@ import com.signaldesk.domain.ContextEvent;
 import com.signaldesk.domain.NewsItem;
 import com.signaldesk.domain.TradeSignal;
 import com.signaldesk.domain.enums.Side;
+import com.signaldesk.domain.enums.TradeSource;
 import com.signaldesk.repository.BriefingRepository;
 import com.signaldesk.repository.ContextEventRepository;
 import com.signaldesk.repository.NewsItemRepository;
@@ -19,7 +20,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -70,6 +73,7 @@ public class BriefingService {
     private final int maxSignals;
     private final int maxNews;
     private final int maxContext;
+    private final int backtestHorizonDays;
     private final ExecutorService workers;
 
     public BriefingService(ClaudeBriefingClient claude,
@@ -86,6 +90,7 @@ public class BriefingService {
                            @Value("${app.briefing.max-signals:10}") int maxSignals,
                            @Value("${app.briefing.max-news:8}") int maxNews,
                            @Value("${app.briefing.max-context:8}") int maxContext,
+                           @Value("${app.backtest.horizon-days:7}") int backtestHorizonDays,
                            @Value("${app.briefing.max-concurrency:4}") int maxConcurrency) {
         this.claude = claude;
         this.signals = signals;
@@ -101,7 +106,24 @@ public class BriefingService {
         this.maxSignals = maxSignals;
         this.maxNews = maxNews;
         this.maxContext = maxContext;
+        this.backtestHorizonDays = backtestHorizonDays;
         this.workers = Executors.newFixedThreadPool(Math.max(1, maxConcurrency));
+    }
+
+    /** Most recent price for a ticker, read from the latest TECHNICAL context event's payload. */
+    private BigDecimal latestPrice(String ticker) {
+        return context.findByTickerOrderByEventAtDesc(ticker).stream()
+                .filter(c -> c.getType() == com.signaldesk.domain.enums.ContextType.TECHNICAL && c.getPayload() != null)
+                .findFirst()
+                .map(c -> {
+                    try {
+                        JsonNode p = mapper.readTree(c.getPayload());
+                        return p.has("price") ? new BigDecimal(p.get("price").asText()) : null;
+                    } catch (Exception e) {
+                        return null;
+                    }
+                })
+                .orElse(null);
     }
 
     public Optional<BriefingJob> findJob(String jobId) {
@@ -182,6 +204,9 @@ public class BriefingService {
         b.setConfidence(clampConfidence(json.path("confidence").asDouble(Double.NaN)));
         b.setSummary(json.path("summary").asText(""));
         b.setModel(claude.model());
+        // Capture the entry price + horizon so the backtest can score this call later.
+        b.setEntryPrice(latestPrice(ticker));
+        b.setHorizonDays(backtestHorizonDays);
         briefings.save(b);
         return true;
     }
@@ -203,8 +228,22 @@ public class BriefingService {
                     .append(")\n"));
         }
 
+        // Insider-cluster signal: multiple distinct insiders acting the same way is far stronger
+        // than any single Form 4. (3+ open-market buyers in 90 days is a classic bullish cluster.)
+        Instant since = Instant.now().minus(90, ChronoUnit.DAYS);
+        long buyers = signals.countDistinctActors(ticker, TradeSource.INSIDER_FORM4, Side.BUY, since);
+        long sellers = signals.countDistinctActors(ticker, TradeSource.INSIDER_FORM4, Side.SELL, since);
+        p.append("\nInsider cluster (last 90 days): ").append(buyers)
+                .append(" distinct insiders bought, ").append(sellers).append(" sold");
+        if (buyers >= 3) {
+            p.append(" — CLUSTER BUYING (a strong bullish signal)");
+        } else if (sellers >= 3) {
+            p.append(" — cluster selling");
+        }
+        p.append(".\n");
+
         List<ContextEvent> ctx = context.findByTickerOrderByEventAtDesc(ticker);
-        p.append("\nContext — analyst ratings, earnings, 8-K, fundamentals (newest first):\n");
+        p.append("\nContext — analyst ratings, earnings, 8-K, fundamentals, price/technicals (newest first):\n");
         if (ctx.isEmpty()) {
             p.append("  (none)\n");
         } else {
@@ -222,8 +261,9 @@ public class BriefingService {
         }
 
         p.append("\nSynthesize a research briefing for ").append(ticker)
-                .append(". Weigh the trade signals against the context (analyst ratings, earnings, 8-K, ")
-                .append("fundamentals) and the news, accounting for freshness. Return strict JSON only.");
+                .append(". Weigh the trade signals (note any insider cluster) against the context — ")
+                .append("analyst ratings, earnings, fundamentals, and where the price sits in its 52-week ")
+                .append("range — and the news, accounting for freshness. Return strict JSON only.");
         return p.toString();
     }
 
