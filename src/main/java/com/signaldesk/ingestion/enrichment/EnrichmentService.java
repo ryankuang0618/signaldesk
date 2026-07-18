@@ -3,10 +3,13 @@ package com.signaldesk.ingestion.enrichment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.signaldesk.domain.ContextEvent;
+import com.signaldesk.domain.PortfolioPosition;
 import com.signaldesk.domain.TradeSignal;
 import com.signaldesk.domain.TrackedIssuer;
 import com.signaldesk.domain.enums.ContextType;
+import com.signaldesk.domain.enums.PositionSource;
 import com.signaldesk.repository.ContextEventRepository;
+import com.signaldesk.repository.PortfolioPositionRepository;
 import com.signaldesk.repository.TrackedIssuerRepository;
 import com.signaldesk.repository.TradeSignalRepository;
 import com.signaldesk.web.ws.LiveUpdatePublisher;
@@ -20,6 +23,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -37,6 +41,7 @@ public class EnrichmentService {
     private final ContextEventRepository context;
     private final TrackedIssuerRepository issuers;
     private final TradeSignalRepository signals;
+    private final PortfolioPositionRepository positions;
     private final LiveUpdatePublisher live;
     private final ObjectMapper mapper;
 
@@ -49,6 +54,7 @@ public class EnrichmentService {
                              ContextEventRepository context,
                              TrackedIssuerRepository issuers,
                              TradeSignalRepository signals,
+                             PortfolioPositionRepository positions,
                              LiveUpdatePublisher live,
                              ObjectMapper mapper,
                              @Value("${app.enrichment.enabled:true}") boolean enabled,
@@ -59,6 +65,7 @@ public class EnrichmentService {
         this.context = context;
         this.issuers = issuers;
         this.signals = signals;
+        this.positions = positions;
         this.live = live;
         this.mapper = mapper;
         this.enabled = enabled;
@@ -216,6 +223,11 @@ public class EnrichmentService {
         for (TrackedIssuer i : issuers.findByActiveTrue()) {
             tickers.add(i.getTicker());
         }
+        for (PortfolioPosition p : positions.findBySource(PositionSource.MANUAL)) {
+            if (p.getTicker() != null) {
+                tickers.add(p.getTicker().toUpperCase(Locale.ROOT));
+            }
+        }
         for (TradeSignal s : signals.findTop100ByOrderByDisclosedAtDesc()) {
             if (tickers.size() >= maxTickers) {
                 break;
@@ -224,8 +236,7 @@ public class EnrichmentService {
                 tickers.add(s.getTicker());
             }
         }
-        return tickers.stream().limit(maxTickers)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return tickers;
     }
 
     private static LocalDate parse(String raw) {

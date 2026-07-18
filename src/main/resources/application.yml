@@ -86,7 +86,7 @@ app:
   enrichment:
     enabled: true
     run-on-startup: true
-    max-tickers: 8                # tickers sent through Finnhub context calls per run
+    max-tickers: 12               # extra tickers beyond tracked + your holdings (which are always enriched)
     eightk-per-issuer: 3         # recent 8-K filings per tracked issuer
     throttle-ms: 1100            # per Finnhub call — stay under free tier (60/min)
     interval-ms: 21600000        # every 6h
@@ -116,7 +116,7 @@ app:
     timezone: ${BRIEFING_TIMEZONE:UTC}       # e.g. Asia/Taipei, America/New_York
     model: ${BRIEFING_MODEL:claude-sonnet-4-6}
     max-tokens: 512
-    max-tickers: 8
+    max-tickers: 12               # extra market-active tickers beyond your holdings (which are always briefed)
     max-signals: 10
     max-news: 8
     max-concurrency: 4   # parallel Claude calls per generation run

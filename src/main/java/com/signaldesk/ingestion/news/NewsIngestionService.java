@@ -1,9 +1,12 @@
 package com.signaldesk.ingestion.news;
 
 import com.signaldesk.domain.NewsItem;
+import com.signaldesk.domain.PortfolioPosition;
 import com.signaldesk.domain.TradeSignal;
 import com.signaldesk.domain.TrackedIssuer;
+import com.signaldesk.domain.enums.PositionSource;
 import com.signaldesk.repository.NewsItemRepository;
+import com.signaldesk.repository.PortfolioPositionRepository;
 import com.signaldesk.repository.TradeSignalRepository;
 import com.signaldesk.repository.TrackedIssuerRepository;
 import org.slf4j.Logger;
@@ -15,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -31,6 +35,7 @@ public class NewsIngestionService {
     private final NewsItemRepository news;
     private final TrackedIssuerRepository issuers;
     private final TradeSignalRepository signals;
+    private final PortfolioPositionRepository positions;
 
     private final boolean enabled;
     private final int lookbackDays;
@@ -41,6 +46,7 @@ public class NewsIngestionService {
                                 NewsItemRepository news,
                                 TrackedIssuerRepository issuers,
                                 TradeSignalRepository signals,
+                                PortfolioPositionRepository positions,
                                 @Value("${app.news.enabled:true}") boolean enabled,
                                 @Value("${app.news.lookback-days:7}") int lookbackDays,
                                 @Value("${app.news.max-tickers:20}") int maxTickers,
@@ -49,6 +55,7 @@ public class NewsIngestionService {
         this.news = news;
         this.issuers = issuers;
         this.signals = signals;
+        this.positions = positions;
         this.enabled = enabled;
         this.lookbackDays = lookbackDays;
         this.maxTickers = maxTickers;
@@ -101,11 +108,16 @@ public class NewsIngestionService {
         return stored;
     }
 
-    /** Tracked-issuer tickers first, then distinct tickers from recent signals, capped. */
+    /** Tracked issuers + your holdings (both guaranteed), then recent-signal tickers up to the cap. */
     private Set<String> targetTickers() {
         Set<String> tickers = new LinkedHashSet<>();
         for (TrackedIssuer i : issuers.findByActiveTrue()) {
             tickers.add(i.getTicker());
+        }
+        for (PortfolioPosition p : positions.findBySource(PositionSource.MANUAL)) {
+            if (p.getTicker() != null) {
+                tickers.add(p.getTicker().toUpperCase(Locale.ROOT));
+            }
         }
         for (TradeSignal s : signals.findTop100ByOrderByDisclosedAtDesc()) {
             if (tickers.size() >= maxTickers) {
@@ -115,7 +127,7 @@ public class NewsIngestionService {
                 tickers.add(s.getTicker());
             }
         }
-        return tickers.stream().limit(maxTickers).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return tickers;
     }
 
     private void throttle() {
