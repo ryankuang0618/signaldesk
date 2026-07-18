@@ -57,6 +57,12 @@ public class BriefingService {
               ~2 days, Congress days-to-weeks. Weigh freshness accordingly.
             - A "signal" is your read of the lean of the evidence, not a recommendation. Use HOLD when
               the evidence is mixed or thin.
+            - Insider trades carry a quality note (role, trade type, size). Weight a CEO/CFO open-market
+              purchase heavily; treat grants, option exercises and tax-withholding sales as near-noise.
+            - Judge news by EVENT TYPE and impact, not generic sentiment. High-impact events (guidance
+              change, M&A, regulatory/legal action, executive departure, major customer win/loss,
+              capital raise, buyback, dividend change, clinical/FDA outcome) should move your read far
+              more than routine coverage. Name the driving event(s) in the summary.
 
             Give a SEPARATE read for three time horizons, because the inputs act over different spans:
             - short_term (days): weigh recent news, 8-K events, earnings surprises, sudden analyst
@@ -251,9 +257,10 @@ public class BriefingService {
             sig.stream().limit(maxSignals).forEach(s -> p.append("  - [")
                     .append(s.getSource()).append("] ").append(s.getSide())
                     .append(" by ").append(s.getActorName() == null ? "?" : s.getActorName())
+                    .append(s.getNote() == null ? "" : " — " + s.getNote())
                     .append(" (transacted ").append(s.getTransactedAt())
                     .append(", disclosed ").append(s.getDisclosedAt())
-                    .append(s.getConfidence() == null ? "" : ", src-confidence " + s.getConfidence())
+                    .append(s.getConfidence() == null ? "" : ", quality " + s.getConfidence())
                     .append(")\n"));
         }
 
@@ -272,7 +279,8 @@ public class BriefingService {
         p.append(".\n");
 
         List<ContextEvent> ctx = context.findByTickerOrderByEventAtDesc(ticker);
-        p.append("\nContext — analyst ratings, earnings, 8-K, fundamentals, price/technicals (newest first):\n");
+        p.append("\nContext — analyst ratings, earnings, 8-K, fundamentals, price, and market "
+                + "momentum/relative-strength/liquidity (newest first):\n");
         if (ctx.isEmpty()) {
             p.append("  (none)\n");
         } else {
@@ -291,9 +299,10 @@ public class BriefingService {
 
         p.append("\nSynthesize a research briefing for ").append(ticker)
                 .append(". Weigh the trade signals (note any insider cluster) against the context — ")
-                .append("analyst ratings, earnings, fundamentals, and where the price sits in its 52-week ")
-                .append("range — and the news, accounting for freshness. Give a short_term, swing, and ")
-                .append("long_term read as instructed. Return strict JSON only.");
+                .append("analyst ratings, earnings, fundamentals, where the price sits in its 52-week ")
+                .append("range, and its momentum and relative strength vs the market (has news already ")
+                .append("been priced in?) — and the news, accounting for freshness. Give a short_term, ")
+                .append("swing, and long_term read as instructed. Return strict JSON only.");
         return p.toString();
     }
 

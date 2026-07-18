@@ -70,6 +70,19 @@ app:
     throttle-ms: 1100             # stay under Finnhub free tier (60 calls/min)
     run-on-startup: true
     interval-ms: 3600000          # hourly
+  alpaca:
+    # Alpaca Market Data — free with an Alpaca account (market-data keys only, no trading needed).
+    # Provides historical daily bars for momentum, relative strength vs SPY, liquidity, and volatility.
+    enabled: true
+    base-url: https://data.alpaca.markets
+    key-id: ${ALPACA_API_KEY_ID:}
+    secret-key: ${ALPACA_API_SECRET_KEY:}
+    feed: iex                 # free tier; 'sip' needs a paid Alpaca data plan
+    lookback-days: 120        # ~enough calendar days for 60 trading-day momentum
+    max-tickers: 12
+    throttle-ms: 350          # Alpaca free allows ~200 req/min; this stays well under
+    run-on-startup: true
+    interval-ms: 21600000     # every 6h
   enrichment:
     enabled: true
     run-on-startup: true

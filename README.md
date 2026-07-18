@@ -116,7 +116,9 @@ export BRIEFING_MODEL=claude-sonnet-4-6 # optional; default is sonnet (override 
 export LINE_CHANNEL_TOKEN=your_token    # LINE bot — reply/push (developers.line.biz)
 export LINE_CHANNEL_SECRET=your_secret  # LINE bot — verifies inbound webhook signatures
 export LINE_USER_ID=your_user_id        # LINE — your user id (proactive alert push target)
-export BRIEFING_TIMEZONE=Asia/Taipei    # optional; when the daily 08:00 briefing run fires
+export ALPACA_API_KEY_ID=your_key       # market data — momentum/relative-strength/liquidity (alpaca.markets)
+export ALPACA_API_SECRET_KEY=your_secret
+export BRIEFING_TIMEZONE=America/Los_Angeles  # optional; when the daily 08:00 briefing run fires
 ```
 
 Without a key, the app runs fine and simply skips that feature (logs a notice). Insider Form 4

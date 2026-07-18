@@ -59,6 +59,10 @@ public class TradeSignal {
     @Column(precision = 4, scale = 3)
     private BigDecimal confidence;
 
+    /** Short human descriptor of the signal's detail/quality (e.g. insider role + trade type + size). */
+    @Column(length = 255)
+    private String note;
+
     /** Accession number / external id — deduplicates re-ingested filings (unique with source). */
     @Column(name = "raw_ref")
     private String rawRef;

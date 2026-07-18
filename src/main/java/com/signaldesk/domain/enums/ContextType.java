@@ -6,5 +6,6 @@ public enum ContextType {
     EARNINGS,
     EIGHT_K,
     TECHNICAL,
-    FUNDAMENTAL
+    FUNDAMENTAL,
+    MARKET      // momentum, relative strength vs SPY, liquidity, realized volatility (from price bars)
 }

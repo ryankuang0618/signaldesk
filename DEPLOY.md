@@ -65,6 +65,8 @@ git push
    | `ANTHROPIC_API_KEY` | your key |
    | `FINNHUB_API_KEY` | your key |
    | `FMP_API_KEY` | your key |
+   | `ALPACA_API_KEY_ID` | your market-data key (optional; enables momentum/RS/liquidity) |
+   | `ALPACA_API_SECRET_KEY` | your market-data secret |
    | `LINE_CHANNEL_TOKEN` | your token |
    | `LINE_CHANNEL_SECRET` | your channel secret |
    | `LINE_USER_ID` | your `U...` id (for proactive alerts) |

@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -21,9 +20,6 @@ import java.util.Optional;
 public class Form4IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(Form4IngestionService.class);
-
-    private static final BigDecimal CONF_OPEN_MARKET = new BigDecimal("0.80");
-    private static final BigDecimal CONF_OTHER = new BigDecimal("0.35");
 
     private final TrackedIssuerRepository issuers;
     private final TradeSignalRepository signals;
@@ -86,6 +82,8 @@ public class Form4IngestionService {
     }
 
     private TradeSignal toSignal(TrackedIssuer issuer, Form4Ref ref, Form4Result r) {
+        InsiderQuality.Assessment quality = InsiderQuality.assess(r);
+
         TradeSignal s = new TradeSignal();
         s.setSource(TradeSource.INSIDER_FORM4);
         s.setTicker(r.issuerSymbol() != null ? r.issuerSymbol() : issuer.getTicker());
@@ -93,7 +91,9 @@ public class Form4IngestionService {
         s.setActorName(actorLabel(r));
         s.setTransactedAt(r.latestDate());
         s.setDisclosedAt(ref.filingDate().atStartOfDay(ZoneOffset.UTC).toInstant());
-        s.setConfidence(r.openMarket() ? CONF_OPEN_MARKET : CONF_OTHER);
+        // Graded quality (role × trade type × size) instead of a flat open-market/other confidence.
+        s.setConfidence(quality.score());
+        s.setNote(quality.note());
         s.setRawRef(ref.accessionNumber());
         return s;
     }
