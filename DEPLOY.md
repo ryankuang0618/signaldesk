@@ -67,6 +67,7 @@ git push
    | `FMP_API_KEY` | your key |
    | `ALPACA_API_KEY_ID` | your market-data key (optional; enables momentum/RS/liquidity) |
    | `ALPACA_API_SECRET_KEY` | your market-data secret |
+   | `FRED_API_KEY` | your FRED key (optional; enables macro-regime context) |
    | `LINE_CHANNEL_TOKEN` | your token |
    | `LINE_CHANNEL_SECRET` | your channel secret |
    | `LINE_USER_ID` | your `U...` id (for proactive alerts) |

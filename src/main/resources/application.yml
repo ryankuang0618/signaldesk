@@ -70,6 +70,15 @@ app:
     throttle-ms: 1100             # stay under Finnhub free tier (60 calls/min)
     run-on-startup: true
     interval-ms: 3600000          # hourly
+  fred:
+    # FRED (Federal Reserve Economic Data) — free macro indicators for the market-regime backdrop
+    # (VIX, 10Y yield, 2s10s curve, Fed funds, CPI, unemployment). Needs a free FRED_API_KEY.
+    enabled: true
+    base-url: https://api.stlouisfed.org/fred
+    api-key: ${FRED_API_KEY:}
+    throttle-ms: 200
+    run-on-startup: true
+    interval-ms: 21600000     # every 6h — macro moves slowly
   alpaca:
     # Alpaca Market Data — free with an Alpaca account (market-data keys only, no trading needed).
     # Provides historical daily bars for momentum, relative strength vs SPY, liquidity, and volatility.

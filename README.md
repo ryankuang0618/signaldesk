@@ -118,6 +118,7 @@ export LINE_CHANNEL_SECRET=your_secret  # LINE bot — verifies inbound webhook 
 export LINE_USER_ID=your_user_id        # LINE — your user id (proactive alert push target)
 export ALPACA_API_KEY_ID=your_key       # market data — momentum/relative-strength/liquidity (alpaca.markets)
 export ALPACA_API_SECRET_KEY=your_secret
+export FRED_API_KEY=your_key            # macro regime — rates/yield-curve/VIX/CPI (fred.stlouisfed.org)
 export BRIEFING_TIMEZONE=America/Los_Angeles  # optional; when the daily 08:00 briefing run fires
 ```
 

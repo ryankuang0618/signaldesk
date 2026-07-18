@@ -11,6 +11,7 @@ import com.signaldesk.domain.TradeSignal;
 import com.signaldesk.domain.enums.PositionSource;
 import com.signaldesk.domain.enums.Side;
 import com.signaldesk.domain.enums.TradeSource;
+import com.signaldesk.ingestion.macro.MacroService;
 import com.signaldesk.repository.BriefingRepository;
 import com.signaldesk.repository.ContextEventRepository;
 import com.signaldesk.repository.NewsItemRepository;
@@ -91,6 +92,7 @@ public class BriefingService {
     private final AlertService alertService;
     private final BriefingJobRegistry jobs;
     private final BacktestService backtest;
+    private final MacroService macro;
 
     private final boolean enabled;
     private final int maxTickers;
@@ -110,6 +112,7 @@ public class BriefingService {
                            AlertService alertService,
                            BriefingJobRegistry jobs,
                            BacktestService backtest,
+                           MacroService macro,
                            @Value("${app.briefing.enabled:true}") boolean enabled,
                            @Value("${app.briefing.max-tickers:8}") int maxTickers,
                            @Value("${app.briefing.max-signals:10}") int maxSignals,
@@ -127,6 +130,7 @@ public class BriefingService {
         this.alertService = alertService;
         this.jobs = jobs;
         this.backtest = backtest;
+        this.macro = macro;
         this.enabled = enabled;
         this.maxTickers = maxTickers;
         this.maxSignals = maxSignals;
@@ -250,6 +254,11 @@ public class BriefingService {
         StringBuilder p = new StringBuilder();
         p.append("Ticker: ").append(ticker).append("\n\n");
 
+        String regime = macro.regime();
+        if (regime != null && !regime.isBlank()) {
+            p.append(regime).append("\n\n");
+        }
+
         p.append("Recent disclosed trades (newest first):\n");
         if (sig.isEmpty()) {
             p.append("  (none)\n");
@@ -301,7 +310,8 @@ public class BriefingService {
                 .append(". Weigh the trade signals (note any insider cluster) against the context — ")
                 .append("analyst ratings, earnings, fundamentals, where the price sits in its 52-week ")
                 .append("range, and its momentum and relative strength vs the market (has news already ")
-                .append("been priced in?) — and the news, accounting for freshness. Give a short_term, ")
+                .append("been priced in?) — the news, accounting for freshness, and the market regime ")
+                .append("backdrop (size conviction down in a risk-off tape). Give a short_term, ")
                 .append("swing, and long_term read as instructed. Return strict JSON only.");
         return p.toString();
     }
