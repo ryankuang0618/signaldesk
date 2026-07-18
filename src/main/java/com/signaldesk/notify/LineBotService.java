@@ -3,6 +3,7 @@ package com.signaldesk.notify;
 import com.signaldesk.backtest.BacktestService;
 import com.signaldesk.domain.Briefing;
 import com.signaldesk.domain.enums.Side;
+import com.signaldesk.portfolio.PortfolioService;
 import com.signaldesk.repository.BriefingRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,15 +31,20 @@ public class LineBotService {
             SignalDesk — disclosed-trade + news research, weighed by AI. Commands:
             • today  — today's signals across tracked tickers
             • <TICKER>  — one ticker's read (e.g. NVDA)
+            • holdings  — your portfolio with live P/L + today's signal
+            • own <TICKER> <shares> @ <price>  — record a holding (e.g. own NVDA 50 @ 120)
+            • remove <TICKER>  — remove a holding
             • stats  — the AI's track record (hit rate)
             • help  — this message""";
 
     private final BriefingRepository briefings;
     private final BacktestService backtest;
+    private final PortfolioService portfolio;
 
-    public LineBotService(BriefingRepository briefings, BacktestService backtest) {
+    public LineBotService(BriefingRepository briefings, BacktestService backtest, PortfolioService portfolio) {
         this.briefings = briefings;
         this.backtest = backtest;
+        this.portfolio = portfolio;
     }
 
     /** Produce the reply text for an inbound message. Never throws — always returns something to send. */
@@ -55,6 +61,17 @@ public class LineBotService {
             }
             if (cmd.equals("today") || cmd.equals("signal") || cmd.equals("signals") || cmd.equals("hi") || cmd.equals("hello")) {
                 return today();
+            }
+            // Portfolio commands (keyed off the first word so args pass through unchanged).
+            String head = cmd.split("\\s+", 2)[0];
+            if (head.equals("holdings") || head.equals("portfolio") || head.equals("positions")) {
+                return portfolio.holdings();
+            }
+            if (head.equals("own") || head.equals("add") || head.equals("buy")) {
+                return portfolio.own(text);
+            }
+            if (head.equals("remove") || head.equals("drop") || head.equals("sell")) {
+                return portfolio.remove(text);
             }
             // A bare ticker-looking token (letters, up to 6 chars): look it up.
             String token = text.replaceFirst("^\\$", "");   // tolerate "$NVDA"
@@ -74,7 +91,8 @@ public class LineBotService {
             return "No briefings generated yet today — the daily run may not have happened. "
                     + "Check back later, or send a ticker (e.g. NVDA)." + DISCLAIMER;
         }
-        StringBuilder sb = new StringBuilder("📊 SignalDesk — " + LocalDate.now() + "\n");
+        StringBuilder sb = new StringBuilder("📊 SignalDesk — " + LocalDate.now()
+                + "\n(swing signals; send a ticker for the full short/swing/long read)\n");
         for (Briefing b : list) {
             sb.append("\n").append(line(b));
         }
@@ -91,8 +109,15 @@ public class LineBotService {
                     + "disclosed trades or news). Send 'today' to see what's live." + DISCLAIMER;
         }
         String summary = b.getSummary() == null ? "" : b.getSummary().trim();
-        return emoji(b.getSignal()) + " " + ticker + " — " + b.getSignal()
-                + " (confidence " + pct(b.getConfidence()) + ")\n\n" + summary + DISCLAIMER;
+        return emoji(b.getSignal()) + " " + ticker + " — research read\n"
+                + "\nshort: " + horizon(b.getShortSignal(), b.getShortConfidence())
+                + "\nswing: " + horizon(b.getSignal(), b.getConfidence())
+                + "\nlong:  " + horizon(b.getLongSignal(), b.getLongConfidence())
+                + "\n\n" + summary + DISCLAIMER;
+    }
+
+    private static String horizon(Side signal, BigDecimal confidence) {
+        return signal == null ? "—" : emoji(signal) + " " + signal + " " + pct(confidence);
     }
 
     private String trackRecord() {
@@ -107,11 +132,13 @@ public class LineBotService {
         sb.append("\nEvaluated calls: ").append(evaluated);
         sb.append("\nHit rate: ").append(hitRate).append("%");
         sb.append("\nAvg directional return: ").append(s.get("avgReturnPct")).append("%");
-        if (s.get("bySignal") instanceof Map<?, ?> by && !by.isEmpty()) {
+        if (s.get("byHorizon") instanceof Map<?, ?> by && !by.isEmpty()) {
+            sb.append("\n\nBy horizon:");
             by.forEach((k, v) -> {
                 if (v instanceof Map<?, ?> m) {
                     sb.append("\n  ").append(k).append(": ").append(m.get("count"))
-                            .append(" calls, ").append(m.get("hitRate")).append("% hit");
+                            .append(" calls, ").append(m.get("hitRate")).append("% hit, ")
+                            .append(m.get("avgReturnPct")).append("% avg");
                 }
             });
         }

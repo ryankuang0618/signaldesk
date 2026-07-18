@@ -2,15 +2,19 @@ package com.signaldesk.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.signaldesk.backtest.BacktestService;
 import com.signaldesk.domain.Briefing;
 import com.signaldesk.domain.ContextEvent;
 import com.signaldesk.domain.NewsItem;
+import com.signaldesk.domain.PortfolioPosition;
 import com.signaldesk.domain.TradeSignal;
+import com.signaldesk.domain.enums.PositionSource;
 import com.signaldesk.domain.enums.Side;
 import com.signaldesk.domain.enums.TradeSource;
 import com.signaldesk.repository.BriefingRepository;
 import com.signaldesk.repository.ContextEventRepository;
 import com.signaldesk.repository.NewsItemRepository;
+import com.signaldesk.repository.PortfolioPositionRepository;
 import com.signaldesk.repository.TradeSignalRepository;
 import com.signaldesk.notify.AlertService;
 import com.signaldesk.web.ws.LiveUpdatePublisher;
@@ -51,11 +55,23 @@ public class BriefingService {
             - This is RESEARCH, not financial advice. Never tell the user to buy or sell.
             - The trade data is DELAYED by disclosure rules: 13F is up to ~45 days old, insider Form 4
               ~2 days, Congress days-to-weeks. Weigh freshness accordingly.
-            - The "signal" you output is your read of the overall lean of the evidence, not a
-              recommendation. Use HOLD when the evidence is mixed or thin.
+            - A "signal" is your read of the lean of the evidence, not a recommendation. Use HOLD when
+              the evidence is mixed or thin.
+
+            Give a SEPARATE read for three time horizons, because the inputs act over different spans:
+            - short_term (days): weigh recent news, 8-K events, earnings surprises, sudden analyst
+              moves and the price reaction. Old disclosures matter little here.
+            - swing (weeks): weigh insider buying/selling (especially clusters), analyst target
+              changes, and price momentum.
+            - long_term (months): weigh 13F fund positioning and fundamentals; freshness matters least.
+            It is NORMAL for the horizons to disagree (e.g. long-term accumulate but short-term wait) —
+            express that in the summary rather than averaging it away.
 
             Respond with STRICT JSON only, no prose outside it, in exactly this shape:
-            {"signal":"BUY|SELL|HOLD","confidence":<0.0-1.0>,"summary":"<2-4 sentences>"}
+            {"short_term":{"signal":"BUY|SELL|HOLD","confidence":<0.0-1.0>},
+             "swing":{"signal":"BUY|SELL|HOLD","confidence":<0.0-1.0>},
+             "long_term":{"signal":"BUY|SELL|HOLD","confidence":<0.0-1.0>},
+             "summary":"<2-4 sentences, noting any cross-horizon disagreement>"}
             """;
 
     private final ClaudeBriefingClient claude;
@@ -63,17 +79,18 @@ public class BriefingService {
     private final NewsItemRepository news;
     private final ContextEventRepository context;
     private final BriefingRepository briefings;
+    private final PortfolioPositionRepository positions;
     private final ObjectMapper mapper;
     private final LiveUpdatePublisher live;
     private final AlertService alertService;
     private final BriefingJobRegistry jobs;
+    private final BacktestService backtest;
 
     private final boolean enabled;
     private final int maxTickers;
     private final int maxSignals;
     private final int maxNews;
     private final int maxContext;
-    private final int backtestHorizonDays;
     private final ExecutorService workers;
 
     public BriefingService(ClaudeBriefingClient claude,
@@ -81,32 +98,34 @@ public class BriefingService {
                            NewsItemRepository news,
                            ContextEventRepository context,
                            BriefingRepository briefings,
+                           PortfolioPositionRepository positions,
                            ObjectMapper mapper,
                            LiveUpdatePublisher live,
                            AlertService alertService,
                            BriefingJobRegistry jobs,
+                           BacktestService backtest,
                            @Value("${app.briefing.enabled:true}") boolean enabled,
                            @Value("${app.briefing.max-tickers:8}") int maxTickers,
                            @Value("${app.briefing.max-signals:10}") int maxSignals,
                            @Value("${app.briefing.max-news:8}") int maxNews,
                            @Value("${app.briefing.max-context:8}") int maxContext,
-                           @Value("${app.backtest.horizon-days:7}") int backtestHorizonDays,
                            @Value("${app.briefing.max-concurrency:4}") int maxConcurrency) {
         this.claude = claude;
         this.signals = signals;
         this.news = news;
         this.context = context;
         this.briefings = briefings;
+        this.positions = positions;
         this.mapper = mapper;
         this.live = live;
         this.alertService = alertService;
         this.jobs = jobs;
+        this.backtest = backtest;
         this.enabled = enabled;
         this.maxTickers = maxTickers;
         this.maxSignals = maxSignals;
         this.maxNews = maxNews;
         this.maxContext = maxContext;
-        this.backtestHorizonDays = backtestHorizonDays;
         this.workers = Executors.newFixedThreadPool(Math.max(1, maxConcurrency));
     }
 
@@ -197,17 +216,27 @@ public class BriefingService {
         // Regenerate cleanly: replace any earlier briefing for this ticker today.
         briefings.deleteByTickerAndBriefingDate(ticker, today);
 
+        // Swing is the headline (drives alerts, the portfolio line, and the backtest); short/long
+        // are shown on the ticker detail view.
+        HorizonRead swing = readHorizon(json, "swing");
+        HorizonRead shortTerm = readHorizon(json, "short_term");
+        HorizonRead longTerm = readHorizon(json, "long_term");
+
         Briefing b = new Briefing();
         b.setBriefingDate(today);
         b.setTicker(ticker);
-        b.setSignal(parseSide(json.path("signal").asText(null)));
-        b.setConfidence(clampConfidence(json.path("confidence").asDouble(Double.NaN)));
+        b.setSignal(swing.side());
+        b.setConfidence(swing.confidence());
+        b.setShortSignal(shortTerm.side());
+        b.setShortConfidence(shortTerm.confidence());
+        b.setLongSignal(longTerm.side());
+        b.setLongConfidence(longTerm.confidence());
         b.setSummary(json.path("summary").asText(""));
         b.setModel(claude.model());
-        // Capture the entry price + horizon so the backtest can score this call later.
+        // Capture the entry price so the backtest can score each horizon later.
         b.setEntryPrice(latestPrice(ticker));
-        b.setHorizonDays(backtestHorizonDays);
-        briefings.save(b);
+        b = briefings.save(b);
+        backtest.scheduleScores(b);
         return true;
     }
 
@@ -263,12 +292,21 @@ public class BriefingService {
         p.append("\nSynthesize a research briefing for ").append(ticker)
                 .append(". Weigh the trade signals (note any insider cluster) against the context — ")
                 .append("analyst ratings, earnings, fundamentals, and where the price sits in its 52-week ")
-                .append("range — and the news, accounting for freshness. Return strict JSON only.");
+                .append("range — and the news, accounting for freshness. Give a short_term, swing, and ")
+                .append("long_term read as instructed. Return strict JSON only.");
         return p.toString();
     }
 
     private Set<String> targetTickers() {
         Set<String> tickers = new LinkedHashSet<>();
+        // Always brief what you own first (bypassing the cap) so 'holdings' gets a fresh daily read
+        // per position even when your stocks are quiet market-wide.
+        for (PortfolioPosition p : positions.findBySource(PositionSource.MANUAL)) {
+            if (p.getTicker() != null) {
+                tickers.add(p.getTicker().toUpperCase());
+            }
+        }
+        // Then fill with the market's most-active tickers, up to the cap (counting held tickers).
         for (TradeSignal s : signals.findTop100ByOrderByDisclosedAtDesc()) {
             if (tickers.size() >= maxTickers) {
                 break;
@@ -295,6 +333,27 @@ public class BriefingService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** One horizon's parsed read. */
+    private record HorizonRead(Side side, BigDecimal confidence) {}
+
+    /**
+     * Pull a horizon's {signal, confidence} from the model output. Falls back to the old single-signal
+     * shape ({"signal","confidence"} at top level) for the swing horizon, so pre-change output and any
+     * model that ignores the new shape still produce a usable headline.
+     */
+    private HorizonRead readHorizon(JsonNode json, String key) {
+        JsonNode node = json.path(key);
+        if (node.isObject()) {
+            return new HorizonRead(parseSide(node.path("signal").asText(null)),
+                    clampConfidence(node.path("confidence").asDouble(Double.NaN)));
+        }
+        if ("swing".equals(key) && json.has("signal")) {
+            return new HorizonRead(parseSide(json.path("signal").asText(null)),
+                    clampConfidence(json.path("confidence").asDouble(Double.NaN)));
+        }
+        return new HorizonRead(Side.HOLD, null);
     }
 
     private static Side parseSide(String s) {

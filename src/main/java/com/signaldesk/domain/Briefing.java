@@ -29,12 +29,29 @@ public class Briefing {
     @Column(length = 16)
     private String ticker;
 
+    /** The SWING (weeks) read — the headline signal used by alerts, the portfolio line, and the backtest. */
     @Enumerated(EnumType.STRING)
     @Column(length = 8)
     private Side signal;
 
     @Column(precision = 4, scale = 3)
     private BigDecimal confidence;
+
+    // Short-horizon (days) read: news, 8-K, earnings surprises, sudden analyst moves.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "short_signal", length = 8)
+    private Side shortSignal;
+
+    @Column(name = "short_confidence", precision = 4, scale = 3)
+    private BigDecimal shortConfidence;
+
+    // Long-horizon (months) read: 13F fund positioning and fundamentals.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "long_signal", length = 8)
+    private Side longSignal;
+
+    @Column(name = "long_confidence", precision = 4, scale = 3)
+    private BigDecimal longConfidence;
 
     @Column(nullable = false, columnDefinition = "text")
     private String summary;
@@ -43,26 +60,12 @@ public class Briefing {
     private String model;
 
     // --- Backtest / track record ---
-    /** Price of the ticker when this briefing was made. */
+    /**
+     * Price of the ticker when this briefing was made — the shared entry for all horizons. Per-horizon
+     * scoring lives in {@link BriefingScore} rows created from this briefing.
+     */
     @Column(name = "entry_price", precision = 18, scale = 4)
     private BigDecimal entryPrice;
-
-    @Column(name = "horizon_days")
-    private Integer horizonDays;
-
-    @Column(name = "evaluated_at")
-    private Instant evaluatedAt;
-
-    @Column(name = "exit_price", precision = 18, scale = 4)
-    private BigDecimal exitPrice;
-
-    /** Percent move from entry to exit over the horizon. */
-    @Column(name = "return_pct", precision = 10, scale = 3)
-    private BigDecimal returnPct;
-
-    /** Whether the directional call (BUY→up / SELL→down) was right. Null until evaluated. */
-    @Column(name = "correct")
-    private Boolean correct;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

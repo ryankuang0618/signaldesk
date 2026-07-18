@@ -108,8 +108,11 @@ app:
     max-news: 8
     max-concurrency: 4   # parallel Claude calls per generation run
   backtest:
-    horizon-days: 7           # days after a briefing before scoring it against the price move
-    interval-ms: 43200000     # evaluate due briefings every 12h
+    # Each horizon's call is scored against the price move once its own window has passed.
+    short-horizon-days: ${BACKTEST_SHORT_HORIZON_DAYS:5}    # days
+    swing-horizon-days: ${BACKTEST_SWING_HORIZON_DAYS:15}   # weeks
+    long-horizon-days:  ${BACKTEST_LONG_HORIZON_DAYS:60}    # months
+    interval-ms: 43200000     # evaluate due calls every 12h
     initial-delay-ms: 120000  # first run 2 min after startup
 
 logging:
