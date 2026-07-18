@@ -39,6 +39,12 @@ app:
     run-on-startup: true
     poll-limit: 8                  # max Form 4 filings pulled per issuer per run
     interval-ms: 1800000           # periodic poll every 30 minutes
+  schedule13:
+    # SEC 13D (activist) / 13G (passive) >5% ownership stakes filed by tracked funds. Free (EDGAR).
+    enabled: true
+    per-fund-limit: 8              # max recent 13D/13G filings scanned per fund per run
+    run-on-startup: true
+    interval-ms: 21600000         # every 6h
   congress:
     enabled: true
     # Free FMP key. Set via env (FMP_API_KEY) or application-local.yml — never commit it.

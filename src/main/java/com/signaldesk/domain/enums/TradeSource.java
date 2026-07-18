@@ -7,5 +7,6 @@ public enum TradeSource {
     ETORO,
     THIRTEEN_F,
     OPTIONS_FLOW,
-    ANALYST_RATING
+    ANALYST_RATING,
+    SCHEDULE_13D    // 13D (activist) / 13G (passive) >5% ownership stakes filed by tracked funds
 }
